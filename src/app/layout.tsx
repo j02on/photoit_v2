@@ -1,5 +1,6 @@
 import { Background } from '@/assets';
 import './globals.css';
+import {AllImgSlide} from '@/components';
 
 export const metadata = {
   title: 'photoIt',
@@ -15,6 +16,7 @@ export default function RootLayout({
     <html lang="en">
       <body>
         {children}
+        <AllImgSlide/>
         <Background />
       </body>
     </html>
