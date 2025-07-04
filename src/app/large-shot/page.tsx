@@ -2,6 +2,13 @@
 
 import Webcam from 'react-webcam';
 import { useEffect, useRef, useState, useMemo, useCallback } from 'react';
+import { useRouter } from 'next/navigation';
+
+import {
+  openLargeDB,
+  saveLargeImageToDB,
+  getStorageUsage,
+} from '@/components/method/largeImageDB';
 
 const videoConstraints = {
   width: 587,
@@ -10,91 +17,15 @@ const videoConstraints = {
   frameRate: { ideal: 30, max: 60 },
 };
 
-const openDB = (): Promise<IDBDatabase> => {
-  return new Promise((resolve, reject) => {
-    const request = indexedDB.open('LargeShotDB', 1);
-
-    request.onerror = () => reject(request.error);
-    request.onsuccess = () => resolve(request.result);
-
-    request.onupgradeneeded = (event) => {
-      const db = (event.target as IDBOpenDBRequest).result;
-      if (!db.objectStoreNames.contains('images')) {
-        db.createObjectStore('images', { keyPath: 'id' });
-      }
-    };
-  });
-};
-
-const saveImageToDB = async (id: string, imageData: string): Promise<void> => {
-  const db = await openDB();
-
-  return new Promise((resolve, reject) => {
-    const transaction = db.transaction(['images'], 'readwrite');
-    const store = transaction.objectStore('images');
-
-    const putRequest = store.put({
-      id,
-      imageData,
-      timestamp: Date.now(),
-      size: imageData.length,
-    });
-
-    putRequest.onsuccess = () => resolve();
-    putRequest.onerror = () => reject(putRequest.error);
-    transaction.onerror = () => reject(transaction.error);
-    transaction.onabort = () => reject(transaction.error);
-  });
-};
-
-const getStorageUsage = async (): Promise<{ usage: number; quota: number }> => {
-  if ('storage' in navigator && 'estimate' in navigator.storage) {
-    const estimate = await navigator.storage.estimate();
-    return {
-      usage: estimate.usage || 0,
-      quota: estimate.quota || 0,
-    };
-  }
-  return { usage: 0, quota: 0 };
-};
-
-const cleanupOldImages = async (keepCount: number = 5): Promise<number> => {
-  const db = await openDB();
-  const transaction = db.transaction(['images'], 'readwrite');
-  const store = transaction.objectStore('images');
-
-  return new Promise((resolve, reject) => {
-    const request = store.getAll();
-    request.onsuccess = () => {
-      const images = request.result.sort((a, b) => b.timestamp - a.timestamp);
-      const imagesToDelete = images.slice(keepCount);
-
-      let deleteCount = 0;
-      if (imagesToDelete.length === 0) return resolve(0);
-
-      imagesToDelete.forEach((img) => {
-        const deleteRequest = store.delete(img.id);
-        deleteRequest.onsuccess = () => {
-          deleteCount++;
-          if (deleteCount === imagesToDelete.length) {
-            resolve(deleteCount);
-          }
-        };
-        deleteRequest.onerror = () => reject(deleteRequest.error);
-      });
-    };
-    request.onerror = () => reject(request.error);
-  });
-};
-
 export default function LargeShot() {
+  const router = useRouter();
   const webcamRef = useRef<Webcam>(null);
   const [timer, setTimer] = useState<number>(0);
   const [counter, setCounter] = useState<number>(0);
   const [completeOpen, setCompleteOpen] = useState<boolean>(false);
   const [isDBReady, setIsDBReady] = useState<boolean>(false);
   const [hasCaptured, setHasCaptured] = useState(false);
-  const [storageInfo, setStorageInfo] = useState<{
+  const [, setStorageInfo] = useState<{
     usage: number;
     quota: number;
     success: boolean;
@@ -110,20 +41,22 @@ export default function LargeShot() {
         if (prev.usage === usageMb && prev.quota === quotaMb) return prev;
         return { ...prev, usage: usageMb, quota: quotaMb };
       });
-    } catch (_) {}
+    } catch {
+      // 에러 무시
+    }
   }, []);
 
   useEffect(() => {
     const initDB = async () => {
       try {
-        await openDB();
+        await openLargeDB();
         setIsDBReady(true);
         setStorageInfo((prev) => ({
           ...prev,
           success: true,
           message: 'IndexedDB 초기화 완료',
         }));
-      } catch (_) {
+      } catch {
         setIsDBReady(false);
         setStorageInfo((prev) => ({
           ...prev,
@@ -140,14 +73,26 @@ export default function LargeShot() {
   }, [isDBReady, updateStorageInfo]);
 
   const capture = useCallback(async () => {
-    if (!webcamRef.current) return;
+    if (!webcamRef.current?.video) return;
 
-    const img = webcamRef.current.getScreenshot();
-    if (!img) return;
+    const video = webcamRef.current.video as HTMLVideoElement;
+    const canvas = document.createElement('canvas');
+    canvas.width = video.videoWidth;
+    canvas.height = video.videoHeight;
+
+    const ctx = canvas.getContext('2d');
+    if (!ctx) return;
+
+    ctx.filter = 'brightness(1.4) contrast(1) saturate(0.8)';
+    ctx.translate(canvas.width, 0);
+    ctx.scale(-1, 1);
+    ctx.drawImage(video, 0, 0, canvas.width, canvas.height);
+
+    const img = canvas.toDataURL('image/jpeg');
 
     try {
       if (isDBReady) {
-        await saveImageToDB(String(counter), img);
+        await saveLargeImageToDB(String(counter), img);
         setStorageInfo((prev) => ({
           ...prev,
           success: true,
@@ -164,7 +109,7 @@ export default function LargeShot() {
 
       setCompleteOpen(true);
       setTimeout(() => updateStorageInfo(), 200);
-    } catch (_) {
+    } catch {
       try {
         localStorage.setItem(String(counter), img);
         setStorageInfo((prev) => ({
@@ -173,7 +118,7 @@ export default function LargeShot() {
           message: `이미지 ${counter} localStorage 폴백 저장 성공`,
         }));
         setCompleteOpen(true);
-      } catch (_) {
+      } catch {
         setStorageInfo((prev) => ({
           ...prev,
           success: false,
@@ -184,32 +129,35 @@ export default function LargeShot() {
   }, [counter, isDBReady, updateStorageInfo]);
 
   useEffect(() => {
-    setTimer(1);
+    setTimer(10);
     const startTime = Date.now();
     const interval = setInterval(() => {
       const elapsed = Date.now() - startTime;
-      const newTimer = (Math.floor(elapsed / 1000) % 10) + 1;
+      const newTimer = 10 - (Math.floor(elapsed / 1000) % 10);
       setTimer((prev) => (prev !== newTimer ? newTimer : prev));
     }, 100);
     return () => clearInterval(interval);
   }, []);
 
   useEffect(() => {
-    if (timer === 10 && !hasCaptured) {
+    if (timer === 1 && !hasCaptured) {
       setHasCaptured(true);
       void (async () => {
         await capture();
         setCounter((prev) => prev + 1);
       })();
-    } else if (timer === 1) {
+    } else if (timer === 10) {
       setCompleteOpen(false);
       setHasCaptured(false);
     }
   }, [timer, hasCaptured, capture]);
 
   useEffect(() => {
-    if (counter === 10) setCounter(0);
-  }, [counter]);
+    if (counter === 10) {
+      setCounter(0);
+      router.push('/select-large');
+    }
+  }, [counter, router]);
 
   const webcamStyle = useMemo(
     () => ({
@@ -217,34 +165,6 @@ export default function LargeShot() {
     }),
     []
   );
-
-  const handleCleanup = useCallback(async () => {
-    try {
-      if (isDBReady) {
-        const deletedCount = await cleanupOldImages(0);
-        setStorageInfo((prev) => ({
-          ...prev,
-          message: `${deletedCount}개 이미지 정리 완료`,
-        }));
-      } else {
-        const keys = Object.keys(localStorage).filter(
-          (key) => !isNaN(Number(key))
-        );
-        keys.forEach((key) => localStorage.removeItem(key));
-        setStorageInfo((prev) => ({
-          ...prev,
-          message: `${keys.length}개 이미지 정리 완료`,
-        }));
-      }
-      updateStorageInfo();
-    } catch (_) {
-      setStorageInfo((prev) => ({
-        ...prev,
-        success: false,
-        message: '정리 실패',
-      }));
-    }
-  }, [isDBReady, updateStorageInfo]);
 
   return (
     <div className="w-full h-screen flex justify-center items-center">
@@ -263,9 +183,9 @@ export default function LargeShot() {
         <div className="text-[40px] font-bold text-black absolute top-[32px] left-[42px]">
           {timer}
         </div>
-        {completeOpen && (
+        {completeOpen && counter > 0 && (
           <div className="bg-black bg-opacity-40 fixed top-0 left-0 w-screen h-screen flex justify-center items-center">
-            <div className="text-[56px] font-bold text-white absolute ">
+            <div className="text-[56px] font-bold text-white absolute">
               {counter}/10
             </div>
           </div>
