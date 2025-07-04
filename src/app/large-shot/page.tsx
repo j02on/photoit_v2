@@ -88,7 +88,7 @@ export default function LargeShot() {
     ctx.scale(-1, 1);
     ctx.drawImage(video, 0, 0, canvas.width, canvas.height);
 
-    const img = canvas.toDataURL('image/jpeg');
+    const img = canvas.toDataURL('image/jpeg', 0.7);
 
     try {
       if (isDBReady) {
