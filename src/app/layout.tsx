@@ -1,33 +1,23 @@
-import type { Metadata } from 'next';
-import { Geist, Geist_Mono } from 'next/font/google';
+import { Background } from '@/assets';
 import './globals.css';
+import {AllImgSlide} from '@/components';
 
-const geistSans = Geist({
-  variable: '--font-geist-sans',
-  subsets: ['latin'],
-});
-
-const geistMono = Geist_Mono({
-  variable: '--font-geist-mono',
-  subsets: ['latin'],
-});
-
-export const metadata: Metadata = {
+export const metadata = {
   title: 'photoIt',
-  description: 'Enjoy taking photos — your way, your style',
+  description: 'Hello, User!!',
 };
 
 export default function RootLayout({
   children,
-}: Readonly<{
+}: {
   children: React.ReactNode;
-}>) {
+}) {
   return (
     <html lang="en">
-      <body
-        className={`${geistSans.variable} ${geistMono.variable} antialiased`}
-      >
+      <body>
         {children}
+        <AllImgSlide/>
+        <Background />
       </body>
     </html>
   );
