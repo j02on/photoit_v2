@@ -3,7 +3,7 @@ import { AnimationBox } from '../method';
 
 export default function RightImgSlide() {
   return (
-    <AnimationBox rotate="right">
+    <AnimationBox rotate="down">
       <RightSlideImg />
     </AnimationBox>
   );
