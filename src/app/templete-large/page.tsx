@@ -24,7 +24,7 @@ export default function TempleteLarge() {
     const photo = frameRef.current;
     if (!photo) return;
 
-    const scale = 3;
+    const scale = 2;
 
     const style = {
       transform: 'scale(' + scale + ')',
