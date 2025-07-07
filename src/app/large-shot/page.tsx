@@ -77,8 +77,13 @@ export default function LargeShot() {
 
     const video = webcamRef.current.video as HTMLVideoElement;
     const canvas = document.createElement('canvas');
-    canvas.width = video.videoWidth;
-    canvas.height = video.videoHeight;
+
+    // 캡처 해상도 대폭 축소
+    const captureWidth = 400;
+    const captureHeight = 530;
+
+    canvas.width = captureWidth;
+    canvas.height = captureHeight;
 
     const ctx = canvas.getContext('2d');
     if (!ctx) return;
@@ -86,47 +91,22 @@ export default function LargeShot() {
     ctx.filter = 'brightness(1.4) contrast(1) saturate(0.8)';
     ctx.translate(canvas.width, 0);
     ctx.scale(-1, 1);
-    ctx.drawImage(video, 0, 0, canvas.width, canvas.height);
+    ctx.drawImage(video, 0, 0, captureWidth, captureHeight);
 
-    const img = canvas.toDataURL('image/jpeg', 0.7);
+    // 품질을 50%로 낮춰서 용량 절약
+    const img = canvas.toDataURL('image/jpeg', 0.5);
 
     try {
       if (isDBReady) {
         await saveLargeImageToDB(String(counter), img);
-        setStorageInfo((prev) => ({
-          ...prev,
-          success: true,
-          message: `이미지 ${counter} IndexedDB 저장 성공`,
-        }));
       } else {
         localStorage.setItem(String(counter), img);
-        setStorageInfo((prev) => ({
-          ...prev,
-          success: true,
-          message: `이미지 ${counter} localStorage 저장 성공`,
-        }));
       }
-
       setCompleteOpen(true);
-      setTimeout(() => updateStorageInfo(), 200);
     } catch {
-      try {
-        localStorage.setItem(String(counter), img);
-        setStorageInfo((prev) => ({
-          ...prev,
-          success: true,
-          message: `이미지 ${counter} localStorage 폴백 저장 성공`,
-        }));
-        setCompleteOpen(true);
-      } catch {
-        setStorageInfo((prev) => ({
-          ...prev,
-          success: false,
-          message: `이미지 ${counter} 저장 실패`,
-        }));
-      }
+      // 에러 처리
     }
-  }, [counter, isDBReady, updateStorageInfo]);
+  }, [counter, isDBReady]);
 
   useEffect(() => {
     setTimer(10);
